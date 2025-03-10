@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Прыгающий шар</title>
+    <title>Двойной прыжок</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         * { margin: 0; padding: 0; }
@@ -15,8 +15,8 @@
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-
-        // Настройки размера canvas
+        
+        // Настройки размеров
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -31,13 +31,22 @@
             radius: 20,
             velocityY: 0,
             jumpForce: -15,
-            gravity: 0.8
+            doubleJumpForce: -12,
+            gravity: 0.8,
+            hasDoubleJumped: false
         };
 
         const cubes = [];
         let gameSpeed = 5;
         let score = 0;
         let isGameOver = false;
+        let isInvincible = false;
+        let invincibleTimer = 0;
+        const invincibleDuration = 500;
+        
+        // Настройки тапов
+        let lastTapTime = 0;
+        const doubleTapThreshold = 300;
 
         // Генерация кубов
         function createCube() {
@@ -50,43 +59,85 @@
             };
         }
 
-        // Обработчик клика/тапа
-        canvas.addEventListener('click', jump);
-        canvas.addEventListener('touchstart', jump);
-
-        function jump(e) {
-            if (isGameOver) {
-                // Рестарт игры
-                cubes.length = 0;
-                score = 0;
-                isGameOver = false;
-                ball.y = canvas.height - 50;
-                ball.velocityY = 0;
-            } else if (ball.velocityY === 0) {
-                ball.velocityY = ball.jumpForce;
+        // Обработка ввода
+        function handleInput(e) {
+            const currentTime = Date.now();
+            const timeSinceLastTap = currentTime - lastTapTime;
+            
+            if (timeSinceLastTap < doubleTapThreshold) {
+                handleDoubleJump();
+                lastTapTime = 0;
+            } else {
+                handleSingleJump();
+                lastTapTime = currentTime;
             }
             e.preventDefault();
         }
 
+        canvas.addEventListener('click', handleInput);
+        canvas.addEventListener('touchstart', handleInput);
+
+        function handleSingleJump() {
+            if (isGameOver) return restartGame();
+            if (ball.velocityY === 0) {
+                ball.velocityY = ball.jumpForce;
+            }
+        }
+
+        function handleDoubleJump() {
+            if (isGameOver) return restartGame();
+            if (ball.velocityY !== 0 && !ball.hasDoubleJumped) {
+                ball.velocityY = ball.doubleJumpForce;
+                ball.hasDoubleJumped = true;
+                isInvincible = true;
+                invincibleTimer = invincibleDuration;
+            }
+        }
+
+        function restartGame() {
+            cubes.length = 0;
+            score = 0;
+            isGameOver = false;
+            ball.y = canvas.height - 50;
+            ball.velocityY = 0;
+            ball.hasDoubleJumped = false;
+            isInvincible = false;
+        }
+
         // Проверка столкновений
         function checkCollision(cube) {
+            if (isInvincible) return false;
             return ball.x + ball.radius > cube.x &&
                    ball.x - ball.radius < cube.x + cube.width &&
                    ball.y + ball.radius > canvas.height - cube.height;
         }
 
         // Игровой цикл
+        let lastFrameTime = performance.now();
+        
         function update() {
             if (isGameOver) return;
+            
+            const currentTime = performance.now();
+            const deltaTime = currentTime - lastFrameTime;
+            lastFrameTime = currentTime;
 
-            // Движение шара
+            // Обновление шара
             ball.velocityY += ball.gravity;
             ball.y += ball.velocityY;
 
-            // Ограничение земли
             if (ball.y > canvas.height - ball.radius) {
                 ball.y = canvas.height - ball.radius;
                 ball.velocityY = 0;
+                ball.hasDoubleJumped = false;
+            }
+
+            // Таймер неуязвимости
+            if (isInvincible) {
+                invincibleTimer -= deltaTime;
+                if (invincibleTimer <= 0) {
+                    isInvincible = false;
+                }
             }
 
             // Генерация кубов
@@ -98,24 +149,20 @@
             for (let i = cubes.length - 1; i >= 0; i--) {
                 cubes[i].x -= gameSpeed;
 
-                // Проверка столкновений
-                if (checkCollision(cubes[i])) {
+                if (!isInvincible && checkCollision(cubes[i])) {
                     isGameOver = true;
                 }
 
-                // Подсчет очков
                 if (!cubes[i].passed && cubes[i].x + cubes[i].width < ball.x) {
                     cubes[i].passed = true;
                     score++;
                 }
 
-                // Удаление вышедших за экран
                 if (cubes[i].x + cubes[i].width < 0) {
                     cubes.splice(i, 1);
                 }
             }
 
-            // Увеличение сложности
             gameSpeed = 5 + score * 0.1;
         }
 
@@ -124,24 +171,28 @@
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Рисуем шар
-            ctx.fillStyle = '#00ff00';
+            // Шар
+            ctx.fillStyle = isInvincible ? '#00ff0088' : '#00ff00';
             ctx.beginPath();
             ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
             ctx.fill();
 
-            // Рисуем кубы
+            // Кубы
             cubes.forEach(cube => {
                 ctx.fillStyle = cube.color;
                 ctx.fillRect(cube.x, canvas.height - cube.height, cube.width, cube.height);
             });
 
-            // Отрисовка счета
+            // Интерфейс
             ctx.fillStyle = '#fff';
             ctx.font = '24px Arial';
             ctx.fillText('Счет: ' + score, 10, 30);
+            
+            if (isInvincible) {
+                ctx.fillText('ЩИТ!', 10, 60);
+            }
 
-            // Экран Game Over
+            // Game Over
             if (isGameOver) {
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -154,7 +205,6 @@
             }
         }
 
-        // Главный цикл
         function gameLoop() {
             update();
             draw();
